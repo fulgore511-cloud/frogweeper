@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Frogweeper 🐸</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: linear-gradient(135deg, #1a4a2e 0%, #2d6b4a 50%, #1a4a2e 100%);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #e0f0e0;
+  }
+  h1 {
+    font-size: 2.2rem;
+    margin-bottom: 0.3rem;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.4);
+  }
+  .subtitle { font-size: 0.9rem; opacity: 0.7; margin-bottom: 1rem; }
+  .controls {
+    display: flex; gap: 1rem; margin-bottom: 1rem; align-items: center;
+  }
+  .controls button, .controls select {
+    padding: 0.4rem 1rem;
+    border: none;
+    border-radius: 6px;
+    background: #3a8f5c;
+    color: white;
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .controls button:hover, .controls select:hover { background: #4aaf6c; }
+  .info-bar {
+    display: flex; gap: 2rem; margin-bottom: 0.8rem;
+    font-size: 1.1rem; font-weight: 600;
+  }
+  #board {
+    display: inline-grid;
+    gap: 2px;
+    background: #0d2e1a;
+    padding: 4px;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  }
+  .cell {
+    width: 38px; height: 38px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.1rem; font-weight: 700;
+    border-radius: 4px;
+    cursor: pointer;
+    user-select: none;
+    transition: transform 0.1s, background 0.2s;
+  }
+  .cell:active { transform: scale(0.93); }
+  .cell.hidden {
+    background: linear-gradient(145deg, #5cbf6e, #3a9f4e);
+    border: 1px solid #2d8040;
+    font-size: 1.4rem;
+  }
+  .cell.hidden:hover { background: linear-gradient(145deg, #6fcf7e, #4aaf5e); }
+  .cell.flagged { font-size: 1.3rem; }
+  .cell.revealed {
+    background: #c4deb0;
+    border: 1px solid #a8c89a;
+    color: #1a3a1a;
+    cursor: default;
+  }
+  .cell.revealed.mine {
+    background: #e85050;
+    font-size: 1.4rem;
+  }
+  .cell.revealed.mine-source {
+    background: #ff3333;
+  }
+  .n1 { color: #1a6aff; } .n2 { color: #2a8a2a; } .n3 { color: #cc3333; }
+  .n4 { color: #6a1ab0; } .n5 { color: #8a3a1a; } .n6 { color: #1a8a8a; }
+  .n7 { color: #333; } .n8 { color: #777; }
+  .game-over-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 100;
+  }
+  .game-over-box {
+    background: #1e4030;
+    padding: 2rem 3rem;
+    border-radius: 12px;
+    text-align: center;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+  }
+  .game-over-box h2 { font-size: 2rem; margin-bottom: 0.5rem; }
+  .game-over-box p { margin-bottom: 1rem; opacity: 0.8; }
+  .game-over-box button {
+    padding: 0.6rem 2rem; border: none; border-radius: 8px;
+    background: #3a8f5c; color: white; font-size: 1rem;
+    cursor: pointer;
+  }
+  .game-over-box button:hover { background: #4aaf6c; }
+</style>
+</head>
+<body>
+  <h1>🐸 Frogweeper</h1>
+  <div class="subtitle">Find the lily pads. Avoid the frogs.</div>
+  <div class="controls">
+    <select id="difficulty">
+      <option value="easy">Easy (9×9, 10 🐸)</option>
+      <option value="medium">Medium (16×16, 40 🐸)</option>
+      <option value="hard">Hard (16×30, 99 🐸)</option>
+    </select>
+    <button onclick="newGame()">New Game</button>
+  </div>
+  <div class="info-bar">
+    <span>🐸 <span id="mineCount">10</span></span>
+    <span>⏱ <span id="timer">0</span>s</span>
+  </div>
+  <div id="board"></div>
+  <div id="overlay" class="game-over-overlay" style="display:none">
+    <div class="game-over-box">
+      <h2 id="endTitle"></h2>
+      <p id="endMsg"></p>
+      <button onclick="newGame()">Play Again</button>
+    </div>
+  </div>
+
+<script>
+const CONFIGS = {
+  easy:   { rows: 9,  cols: 9,  mines: 10 },
+  medium: { rows: 16, cols: 16, mines: 40 },
+  hard:   { rows: 16, cols: 30, mines: 99 },
+};
+
+let grid, rows, cols, mineCount, flagCount, revealed, gameOver, firstClick, timerInterval, seconds;
+
+function newGame() {
+  const cfg = CONFIGS[document.getElementById('difficulty').value];
+  rows = cfg.rows; cols = cfg.cols; mineCount = cfg.mines;
+  flagCount = 0; revealed = 0; gameOver = false; firstClick = true; seconds = 0;
+  clearInterval(timerInterval);
+  document.getElementById('timer').textContent = '0';
+  document.getElementById('mineCount').textContent = mineCount;
+  document.getElementById('overlay').style.display = 'none';
+
+  grid = Array.from({length: rows}, () => Array.from({length: cols}, () => ({
+    mine: false, revealed: false, flagged: false, count: 0
+  })));
+
+  const board = document.getElementById('board');
+  board.style.gridTemplateColumns = `repeat(${cols}, 38px)`;
+  board.innerHTML = '';
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const cell = document.createElement('div');
+      cell.className = 'cell hidden';
+      cell.textContent = '🍃';
+      cell.addEventListener('click', () => handleClick(r, c));
+      cell.addEventListener('contextmenu', e => { e.preventDefault(); handleFlag(r, c); });
+      cell.dataset.r = r; cell.dataset.c = c;
+      board.appendChild(cell);
+    }
+  }
+}
+
+function placeMines(safeR, safeC) {
+  let placed = 0;
+  while (placed < mineCount) {
+    const r = Math.floor(Math.random() * rows);
+    const c = Math.floor(Math.random() * cols);
+    if (grid[r][c].mine || (Math.abs(r - safeR) <= 1 && Math.abs(c - safeC) <= 1)) continue;
+    grid[r][c].mine = true;
+    placed++;
+  }
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c < cols; c++)
+      if (!grid[r][c].mine)
+        grid[r][c].count = neighbors(r, c).filter(([nr, nc]) => grid[nr][nc].mine).length;
+}
+
+function neighbors(r, c) {
+  const out = [];
+  for (let dr = -1; dr <= 1; dr++)
+    for (let dc = -1; dc <= 1; dc++) {
+      if (!dr && !dc) continue;
+      const nr = r + dr, nc = c + dc;
+      if (nr >= 0 && nr < rows && nc >= 0 && nc < cols) out.push([nr, nc]);
+    }
+  return out;
+}
+
+function getCell(r, c) {
+  return document.querySelector(`.cell[data-r="${r}"][data-c="${c}"]`);
+}
+
+function handleClick(r, c) {
+  if (gameOver || grid[r][c].flagged || grid[r][c].revealed) return;
+  if (firstClick) {
+    firstClick = false;
+    placeMines(r, c);
+    timerInterval = setInterval(() => {
+      seconds++;
+      document.getElementById('timer').textContent = seconds;
+    }, 1000);
+  }
+  if (grid[r][c].mine) {
+    grid[r][c].revealed = true;
+    revealAll(r, c);
+    endGame(false);
+    return;
+  }
+  flood(r, c);
+  checkWin();
+}
+
+function handleFlag(r, c) {
+  if (gameOver || grid[r][c].revealed) return;
+  const g = grid[r][c], cell = getCell(r, c);
+  g.flagged = !g.flagged;
+  if (g.flagged) {
+    flagCount++;
+    cell.textContent = '🚩';
+    cell.classList.add('flagged');
+  } else {
+    flagCount--;
+    cell.textContent = '🍃';
+    cell.classList.remove('flagged');
+  }
+  document.getElementById('mineCount').textContent = mineCount - flagCount;
+}
+
+function flood(r, c) {
+  if (r < 0 || r >= rows || c < 0 || c >= cols) return;
+  const g = grid[r][c];
+  if (g.revealed || g.flagged || g.mine) return;
+  g.revealed = true;
+  revealed++;
+  const cell = getCell(r, c);
+  cell.classList.remove('hidden');
+  cell.classList.add('revealed');
+  if (g.count > 0) {
+    cell.textContent = g.count;
+    cell.classList.add('n' + g.count);
+  } else {
+    cell.textContent = '';
+    neighbors(r, c).forEach(([nr, nc]) => flood(nr, nc));
+  }
+}
+
+function revealAll(srcR, srcC) {
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c < cols; c++) {
+      if (grid[r][c].mine) {
+        const cell = getCell(r, c);
+        cell.classList.remove('hidden');
+        cell.classList.add('revealed', 'mine');
+        if (r === srcR && c === srcC) cell.classList.add('mine-source');
+        cell.textContent = '🐸';
+      }
+    }
+}
+
+function checkWin() {
+  if (revealed === rows * cols - mineCount) endGame(true);
+}
+
+function endGame(won) {
+  gameOver = true;
+  clearInterval(timerInterval);
+  const overlay = document.getElementById('overlay');
+  document.getElementById('endTitle').textContent = won ? '🎉 You Win!' : '🐸 Ribbit!';
+  document.getElementById('endMsg').textContent = won
+    ? `Cleared all lily pads in ${seconds}s!`
+    : 'You disturbed a frog!';
+  overlay.style.display = 'flex';
+}
+
+newGame();
+</script>
+</body>
+</html>
